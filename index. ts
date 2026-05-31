@@ -1,240 +1,90 @@
-// index.ts — Точка входа MagadanPowerBot
-// Архитектура: SOLID, DRY, Early Return, строгая типизация
-// Фреймворк: grammY (TypeScript-first)
+// index.ts — MagadanPowerBot v2.0 Production-Ready
+// Архитектура: Чистый Webhook, Логирование, Защита от падений
 
-import { Bot, Context, session, SessionFlavor } from "grammy";
-import { config } from "dotenv";
+import { Bot, webhookCallback } from "grammy";
+import express from "express";
 
-// Загружаем переменные окружения
-config();
-
-// ============================================================
-// 1. ТИПЫ И ИНТЕРФЕЙСЫ (Строгая типизация)
-// ============================================================
-
-interface SessionData {
-    step: "start" | "name_input" | "power_input" | "address_input" | "payment_wait";
-    userName?: string;
-    power?: number;
-    address?: string;
-    referralCode?: string;
-    promoCode?: string;
-    status?: "user" | "expert";
-    inviteCount: number;
-}
-
-type MyContext = Context & SessionFlavor<SessionData>;
-
-// ============================================================
-// 2. КОНСТАНТЫ (Никаких магических чисел)
-// ============================================================
-
+// 1. Строгая проверка окружения (early return)
 const BOT_TOKEN = process.env.BOT_TOKEN;
 if (!BOT_TOKEN) {
-    throw new Error("BOT_TOKEN is not set in environment variables");
+    throw new Error("⛔ BOT_TOKEN не найден в переменных окружения!");
 }
 
-const START_MESSAGE = `
-⚡ <b>MagadanPowerBot</b>
+// 2. Инициализация бота
+const bot = new Bot(BOT_TOKEN);
 
-Ваш личный помощник по вопросам
-техприсоединения и энергоснабжения
-в Магаданской области.
-
-📋 Генерация документов
-📊 Аудит тарифов и потерь
-🧑‍💻 Проверенные электрики
-
-<i>Вас консультирует эксперт-энергетик
-с опытом работы в изолированной
-энергосистеме более 27 лет.</i>
-`;
-
-const WOW_HOOK_MESSAGE = (name: string) => `
-<b>${name}</b>, рад знакомству!
-
-Вы подключены к изолированной энергосистеме
-Магаданской области. Это значит, что
-стандартные шаблоны из интернета вам
-<b>не подойдут</b> — нужны документы,
-учитывающие местную специфику.
-
-Я помогу вам:
-⚡ Подготовить Акт разграничения
-⚡ Заполнить заявку на техприсоединение
-⚡ Проверить тариф — не переплачиваете ли вы
-
-<i>Эксперт с 27-летним стажем
-контролирует каждый документ.</i>
-
-Выберите, с чего начнём:
-`;
-
-// ============================================================
-// 3. ИНИЦИАЛИЗАЦИЯ БОТА
-// ============================================================
-
-const bot = new Bot<MyContext>(BOT_TOKEN);
-
-// Подключаем сессии (хранят состояние пользователя в оперативной памяти)
-// Для продакшена заменим на Redis/Supabase — заложено в архитектуре
-bot.use(session({
-    initial(): SessionData {
-        return {
-            step: "start",
-            inviteCount: 0,
-        };
-    },
-}));
-
-// ============================================================
-// 4. КОМАНДА /start — WOW-онбординг
-// ============================================================
-
+// 3. Команда /start с обработкой ошибок
 bot.command("start", async (ctx) => {
-    // Извлекаем реферальный код из ссылки, если есть
-    // Пример: /start refABC123
-    const args = ctx.match;
-    if (args && typeof args === "string" && args.startsWith("ref")) {
-        ctx.session.referralCode = args;
-        // Логика начисления бонуса рефереру — будет в Модуле 6
+    try {
+        const userName = ctx.from?.first_name || "Дорогой друг";
+        
+        await ctx.reply(
+            `⚡ <b>MagadanPowerBot</b>\n\n` +
+            `Здравствуйте, <b>${userName}</b>!\n\n` +
+            `Вас приветствует эксперт-энергетик\n` +
+            `с опытом работы в изолированной\n` +
+            `энергосистеме более 27 лет.\n\n` +
+            `Я помогу вам с документами,\n` +
+            `тарифами и техприсоединением.\n\n` +
+            `Нажмите /menu, чтобы начать.`,
+            { parse_mode: "HTML" }
+        );
+        
+        // Лог успеха
+        console.log(`✅ Пользователь ${ctx.from?.id} запустил бота`);
+    } catch (error) {
+        console.error("❌ Ошибка в команде /start:", error);
+        await ctx.reply("⚠️ Произошла ошибка. Пожалуйста, попробуйте позже.").catch(() => {});
     }
+});
 
-    // Сбрасываем сессию
-    ctx.session.step = "start";
-    ctx.session.inviteCount = ctx.session.inviteCount || 0;
-
-    // Отправляем статусное приветствие с задержкой (эффект живого разговора)
-    await ctx.reply(START_MESSAGE, { parse_mode: "HTML" });
-
-    // Пауза 0.5 сек — WOW-эффект
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // Запрашиваем имя — следующий шаг воронки
+// 4. Заглушка для /menu
+bot.command("menu", async (ctx) => {
     await ctx.reply(
-        "👤 <b>Давайте познакомимся.</b>\n\nКак к вам можно обращаться?",
+        "📋 <b>Главное меню</b>\n\n" +
+        "Выберите услугу:\n" +
+        "1. Акт разграничения\n" +
+        "2. Заявка на техприсоединение\n" +
+        "3. Проверить тариф\n" +
+        "4. Анализ потерь",
         { parse_mode: "HTML" }
     );
-
-    ctx.session.step = "name_input";
 });
 
-// ============================================================
-// 5. ОБРАБОТЧИК ТЕКСТОВЫХ СООБЩЕНИЙ (Finite State Machine)
-// ============================================================
-
+// 5. Обработчик любых текстовых сообщений (защита от падений)
 bot.on("message:text", async (ctx) => {
-    const text = ctx.message.text.trim();
-    const step = ctx.session.step;
-
-    // Early return — если сообщение не требует обработки по шагам
-    if (!step || step === "payment_wait") {
-        return; // Игнорируем, не зависаем
-    }
-
-    // Шаг 1: получили имя
-    if (step === "name_input") {
-        ctx.session.userName = text;
-        ctx.session.step = "power_input";
-
+    try {
         await ctx.reply(
-            `Приятно познакомиться, <b>${text}</b>!\n\n` +
-            `⚡ <b>Какая мощность вам нужна?</b>\n\n` +
-            `• 15 кВт (частный дом)\n` +
-            `• 30 кВт (большой дом / малый бизнес)\n` +
-            `• Более 30 кВт (предприятие)\n\n` +
-            `Просто напишите число, например: <b>15</b>`,
-            { parse_mode: "HTML" }
+            "Я вас слышу! 👂\n\n" +
+            "Пока я нахожусь в разработке.\n" +
+            "Напишите /start или /menu, чтобы\n" +
+            "увидеть, что я уже умею."
         );
-        return; // Early return
-    }
-
-    // Шаг 2: получили мощность
-    if (step === "power_input") {
-        const power = parseFloat(text);
-        if (isNaN(power) || power <= 0) {
-            await ctx.reply("⚠️ Пожалуйста, введите мощность числом в кВт. Например: 15");
-            return; // Early return — не валидно
-        }
-
-        ctx.session.power = power;
-        ctx.session.step = "address_input";
-
-        await ctx.reply(
-            `✅ Принято: <b>${power} кВт</b>\n\n` +
-            `📍 <b>Остался последний шаг.</b>\n` +
-            `Напишите адрес объекта (город, улица, дом).\n` +
-            `Это нужно для заполнения документов.`,
-            { parse_mode: "HTML" }
-        );
-        return; // Early return
-    }
-
-    // Шаг 3: получили адрес — показываем WOW-меню
-    if (step === "address_input") {
-        ctx.session.address = text;
-        ctx.session.step = "start"; // Сбрасываем, готовы к выбору услуг
-
-        const name = ctx.session.userName || "Уважаемый пользователь";
-        await ctx.reply(WOW_HOOK_MESSAGE(name), {
-            parse_mode: "HTML",
-            reply_markup: {
-                inline_keyboard: [
-                    [{ text: "📋 Получить Акт разграничения", callback_data: "doc_act" }],
-                    [{ text: "📝 Заявка на техприсоединение", callback_data: "doc_request" }],
-                    [{ text: "📊 Проверить тариф (бесплатно)", callback_data: "audit_free" }],
-                    [{ text: "⚡ Анализ потерь (бесплатно)", callback_data: "loss_free" }],
-                    [{ text: "🧑‍💻 Найти электрика", callback_data: "partner_find" }],
-                    [{ text: "👥 Партнёрская программа", callback_data: "referral_info" }],
-                ],
-            },
-        });
-        return; // Early return
+        console.log(`📩 Сообщение от ${ctx.from?.id}: "${ctx.message.text}"`);
+    } catch (error) {
+        console.error("❌ Ошибка в обработчике сообщений:", error);
     }
 });
 
-// ============================================================
-// 6. ЗАГЛУШКИ CALLBACK-ОБРАБОТЧИКОВ (Будут расширены в модулях)
-// ============================================================
+// 6. Production-Ready Express сервер с Webhook
+const app = express();
 
-bot.on("callback_query:data", async (ctx) => {
-    const data = ctx.callbackQuery.data;
+// Парсим JSON тела запросов от Telegram
+app.use(express.json());
 
-    // Early return — обрабатываем только известные команды
-    if (!data) return;
+// Webhook endpoint
+app.post("/api/telegram", webhookCallback(bot, "express"));
 
-    await ctx.answerCallbackQuery(); // Закрываем "часики" на кнопке
-
-    if (data === "doc_act") {
-        await ctx.reply("📋 <b>Акт разграничения балансовой принадлежности</b>\n\nГотовится в Модуле 1. Скоро здесь будет генерация PDF.", { parse_mode: "HTML" });
-    } else if (data === "doc_request") {
-        await ctx.reply("📝 <b>Заявка на техприсоединение</b>\n\nГотовится в Модуле 1. Скоро здесь будет форма.", { parse_mode: "HTML" });
-    } else if (data === "audit_free") {
-        await ctx.reply("📊 <b>Бесплатный аудит тарифа</b>\n\nЗагрузите фото счёта-фактуры от Энергосбыта.\nФункция в разработке (Модуль 2).", { parse_mode: "HTML" });
-    } else if (data === "loss_free") {
-        await ctx.reply("⚡ <b>Анализ потерь</b>\n\nНапишите длину линии и материал провода.\nФункция в разработке (Модуль 3).", { parse_mode: "HTML" });
-    } else if (data === "partner_find") {
-        await ctx.reply("🧑‍💻 <b>Проверенные электрики в Магадане</b>\n\nБаза партнёров наполняется.\nХотите стать партнёром? Напишите /partner", { parse_mode: "HTML" });
-    } else if (data === "referral_info") {
-        await ctx.reply(
-            "👥 <b>Партнёрская программа</b>\n\n" +
-            "Пригласите друга — получите <b>бесплатный документ</b>.\n" +
-            "3 друга — <b>премиум-аудит</b> в подарок.\n" +
-            "5 друзей — статус <b>«Эксперт»</b> и скидка 20% навсегда.\n\n" +
-            "Ваша реферальная ссылка:\n" +
-            `<code>https://t.me/${ctx.me.username}?start=ref${ctx.from?.id || "USER"}</code>\n\n` +
-            "Просто отправьте её другу!",
-            { parse_mode: "HTML" }
-        );
-    }
+// Обязательная проверка жизни для Vercel
+app.get("/", (req, res) => {
+    res.status(200).send("⚡ MagadanPowerBot работает! Эксперт на связи.");
 });
 
-// ============================================================
-// 7. ЗАПУСК БОТА
-// ============================================================
-
-bot.start({
-    onStart(botInfo) {
-        console.log(`✅ ${botInfo.username} запущен. Эксперт с 27-летним стажем на связи.`);
-    },
+// Запуск сервера на порту Vercel
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`✅ Бот запущен на порту ${PORT}`);
+    console.log("⚡ MagadanPowerBot готов к работе");
 });
+
+export default app;
